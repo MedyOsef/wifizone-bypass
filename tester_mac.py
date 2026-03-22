@@ -3,7 +3,7 @@ import os
 import sys
 
 # --- CONFIGURATION ---
-INTERFACE = "wlan0"
+INTERFACE = "wlan0"                   # Adapter selon votre interface (ip a)
 FICHIER_MACS = "mac_output-03-21.txt"
 
 def run_command(command):
