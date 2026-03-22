@@ -117,4 +117,4 @@ Remplacer `NOM-DU-WIFI` par le SSID du réseau et `MA:CA:DD:RE:SS` par l'adresse
 
 - **Type** : Projet universitaire de sécurité réseau
 - **Objectif pédagogique** : Démontrer les failles d'une authentification basée sur l'adresse MAC
-- **Cadre** : Éthique et légal — réalisé avec l'accord du corps enseignant
+- **Cadre** : Éthique et légal - à but édudatif
