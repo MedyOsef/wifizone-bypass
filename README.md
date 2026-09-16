@@ -78,12 +78,33 @@ sudo nmcli connection up "NOM-DU-WIFI-LABO"
 
 Pistes opérateur : 802.1X, tokens courts, détection même MAC sur 2 radios / 2 débits, isolation client.
 
+## 🖥️ Version simple pour non-techniques (GUI Flet, pas tkinter)
+
+Pas de terminal à retenir. Interface moderne en français, mode Démo sans risque par défaut.
+
+```bash
+# installer Flet une fois (avec pip disponible)
+pip install -r requirements-gui.txt
+# démo sans risque (pas besoin de sudo)
+python3 gui.py
+# test réel labo uniquement
+sudo python3 gui.py
+```
+
+Dans la fenêtre :
+1. **Étape 1** : choisissez l'interface (liste auto) + bouton 📂 pour le fichier MACs + nom du labo
+2. **Étape 2** : laissez `Mode Démo` coché pour débuter (simule 5 adresses, ne touche à rien)
+3. Cliquez **▶ Lancer** -> progression + ✅/❌ par carte, journal simple en bas
+4. Pour le vrai test labo : décochez Démo, cochez la case d'autorisation, relancez avec sudo. Bouton ↩ pour restaurer.
+
 ## 📁 Structure
 
 ```
 .
 ├── README.md
 ├── tester_mac.py       # Script v2 (argparse, test auto, restore)
+├── gui.py              # GUI Flet jolie pour non-techniques (mode démo par défaut)
+├── requirements-gui.txt # flet uniquement
 ├── .gitignore          # ignore pcap, mac_output*.txt, results.csv
 └── results.csv         # Généré (non versionné)
 ```
