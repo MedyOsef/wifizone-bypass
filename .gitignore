@@ -1,0 +1,8 @@
+*.pcap
+*.pcapng
+mac_output*.txt
+macs.txt
+results.csv
+__pycache__/
+*.pyc
+original_mac.txt

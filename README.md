@@ -1,120 +1,89 @@
-# wifizone-bypass
-PoC: passive MAC capture via tshark + spoofing script to expose WiFi zone auth flaws.
+# wifizone-bypass — PoC académique (LABO UNIQUEMENT)
 
-# 📡 WiFi Zone MAC Address Tester
+> ⚠️ **Éthique / légal** : à but **éducatif**, sur **votre propre labo** (AP de test vous appartenant, autorisation écrite).
+> L'usage sur un WiFi zone tiers sans autorisation = intrusion / vol de service, illégal.
+> Le script exige `--confirm-lab --lab-ap "NomLabo"` et restaure votre MAC d'origine.
 
-> **Projet académique** — Démonstration des limites de sécurité des systèmes d'authentification par adresse MAC dans les WiFi zones africaines.
-
----
-
-## 🎯 Contexte et objectif
-
-Les **WiFi zones** sont des points d'accès communautaires très répandus en Afrique subsaharienne. Des particuliers mettent à disposition un accès internet contre un forfait payant (hebdomadaire ou mensuel). L'authentification des utilisateurs repose uniquement sur leur **adresse MAC** — l'identifiant matériel de leur carte réseau.
-
-Ce projet universitaire démontre que cette méthode d'authentification présente une **faille de sécurité critique** : une adresse MAC peut être capturée passivement sur le réseau, puis usurpée pour accéder au service sans autorisation.
-
-> ⚠️ **Avertissement légal et éthique** : Ce projet est réalisé dans un cadre **strictement educatif**. L'utilisation de ces techniques sur des réseaux sans autorisation explicite est illégale. L'objectif est de sensibiliser aux limites des systèmes d'authentification par adresse MAC.
+Démontre pourquoi **l'authentification par MAC seule est insuffisante** : MAC en clair, rejouable avec `ip link`.
 
 ---
+
+## 🎯 Ce que fait la v2
+
+Ancien script : MAC en dur, `shell=True`, test manuel à chaque fois, pas de restauration.
+Nouveau `tester_mac.py` :
+- `argparse` : `--interface`, `--file`, `--out`, `--ping-target`, `--http-url`, `--limit`, `--dry-run`, `--manual`
+- Validation : regex, rejet broadcast/multicast, déduplique, ignore votre propre MAC
+- Sans `shell=True` (listes d'args), compatible NetworkManager (`nmcli disconnect/connect`)
+- Test **auto** vers **votre passerelle labo** (ping + HTTP), log CSV `results.csv`
+- Sauvegarde + **restauration auto** de la MAC d'origine (même sur Ctrl+C)
+- Garde-fou : refuse de tourner hors `--dry-run` sans `--confirm-lab`
 
 ## 🛠️ Prérequis
 
-- Système Linux (Kali, Ubuntu, Debian…)
-- `tshark` (paquet `wireshark-cli`)
-- `python3`
-- `NetworkManager` (`nmcli`)
-- Droits **root** (`sudo`)
+- Linux, `python3` (stdlib uniquement, pas de dépendances), `iproute2`, `nmcli` recommandé
+- `tshark` uniquement pour analyser **votre capture labo**
+- root pour changer de MAC
 
 ```bash
-sudo apt install tshark python3
+sudo apt install tshark python3 network-manager
 ```
 
----
+## ⚙️ Workflow labo recommandé
 
-## ⚙️ Fonctionnement — Étape par étape
+### 1. Montez votre labo (pas le réseau du voisin)
+Créez un AP de test (hostapd / routeur de TP) avec filtrage MAC activé. Notez son SSID = votre `--lab-ap`.
 
-### Étape 1 — Capture du trafic réseau
-
-Utiliser **Wireshark** ou **tshark** pour capturer le trafic sur l'interface réseau et enregistrer le fichier `.pcapng`.
-
-### Étape 2 — Extraction des adresses MAC
-
-La commande suivante extrait toutes les adresses MAC sources et destinations depuis la capture, les trie et supprime les doublons :
-
+### 2. Capture labo -> liste MACs
 ```bash
-tshark -r sniffing-file.pcapng -T fields -e eth.src -e eth.dst \
-  | tr '\t' '\n' \
-  | sort -u > mac_output.txt
+# capture sur VOTRE labo uniquement
+tshark -i wlan0 -w labo.pcapng
+# extraction + tri par activité (les plus actifs d'abord, utile en démo)
+tshark -r labo.pcapng -T fields -e wlan.sa -e wlan.da \
+  | tr '\t' '\n' | grep -Ei '^([0-9a-f]{2}:){5}[0-9a-f]{2}$' \
+  | grep -vi '^ff:ff:ff:ff:ff:ff$' | sort | uniq -c | sort -nr | awk '{print $2}' > mac_output.txt
 ```
 
-**Résultat** : un fichier `mac_output.txt` contenant une adresse MAC par ligne.
-
-### Étape 3 — Test des adresses MAC
-
-Le script Python `tester_mac.py` applique chaque adresse MAC extraite sur l'interface réseau, puis attend que l'utilisateur vérifie manuellement si la connexion fonctionne.
-
+### 3. Simulation sans risque
 ```bash
-sudo python3 tester_mac.py
+python3 tester_mac.py --interface wlan0 --file mac_output.txt --dry-run
 ```
 
-**Fonctionnement du script :**
-1. Vérifie les droits root et l'existence du fichier `mac_output.txt`
-2. Pour chaque adresse MAC de la liste :
-   - Désactive l'interface réseau
-   - Applique la nouvelle adresse MAC
-   - Réactive l'interface
-   - **Pause** — l'utilisateur teste manuellement (ping, navigateur…)
-   - Passe à la suivante sur appui d'`Entrée`
-
----
-
-## 📄 Script principal — `tester_mac.py`
-
----
-
-## 💾 (Optionnel) Persistance de l'adresse MAC
-
-Si une adresse MAC fonctionnelle est trouvée, il est possible de l'associer de façon permanente à un réseau WiFi spécifique via NetworkManager :
-
+### 4. Test réel sur votre labo
 ```bash
-sudo nmcli connection modify "NOM-DU-WIFI" 802-11-wireless.cloned-mac-address "MA:CA:DD:RE:SS"
-sudo nmcli connection up "NOM-DU-WIFI"
+sudo python3 tester_mac.py \
+  --interface wlan0 --file mac_output.txt \
+  --lab-ap "TP-Reseau-SalleB" --confirm-lab \
+  --ping-target 192.168.1.1 --http-url http://192.168.1.1/ \
+  --out results.csv
+# mode historique manuel :
+sudo python3 tester_mac.py -i wlan0 -f mac_output.txt --lab-ap "TP-Reseau-SalleB" --confirm-lab --manual
 ```
 
-Remplacer `NOM-DU-WIFI` par le SSID du réseau et `MA:CA:DD:RE:SS` par l'adresse MAC retenue.
+Résultat : `results.csv` avec `timestamp,lab,interface,mac,applied,ping_ok,http_ok,http_code,mode`.
 
----
+### 5. Persistance (labo uniquement)
+```bash
+sudo nmcli connection modify "NOM-DU-WIFI-LABO" 802-11-wireless.cloned-mac-address "MA:CA:DD:RE:SS"
+sudo nmcli connection up "NOM-DU-WIFI-LABO"
+```
 
-## 🔍 Limites de sécurité démontrées
+## 🔍 À mettre dans votre rapport
 
-| Vulnérabilité | Explication |
-|---|---|
-| **Authentification par MAC uniquement** | L'adresse MAC transite en clair sur le réseau et peut être capturée passivement |
-| **Absence de chiffrement de la session** | Aucun token ou session sécurisée n'est lié à l'utilisateur |
-| **Usurpation triviale** | Changer son adresse MAC est une opération standard sous Linux, sans matériel spécial |
+| Vulnérabilité | Explication | Contre-mesure |
+|---|---|---|
+| MAC seule | En clair, rejouable | Portail captif + token session |
+| Pas de session liée | Rejeu trivial | RADIUS / 802.1X, timeout court |
+| Usurpation facile | `ip link set` standard | Détection doublons MAC, alertes simultanées |
 
-### Recommandations pour les opérateurs de WiFi zones
+Pistes opérateur : 802.1X, tokens courts, détection même MAC sur 2 radios / 2 débits, isolation client.
 
-- Combiner l'authentification MAC avec un **portail captif** (login/mot de passe)
-- Implémenter un système de **tokens de session** côté serveur
-- Utiliser **802.1X** (authentification RADIUS) pour les déploiements plus avancés
-- Limiter la durée de validité des sessions et détecter les connexions simultanées
-
----
-
-## 📁 Structure du projet
+## 📁 Structure
 
 ```
 .
 ├── README.md
-├── tester_mac.py       # Script principal de test
-└── mac_output.txt      # Généré par tshark (non versionné)
+├── tester_mac.py       # Script v2 (argparse, test auto, restore)
+├── .gitignore          # ignore pcap, mac_output*.txt, results.csv
+└── results.csv         # Généré (non versionné)
 ```
-
----
-
-## 👨‍🎓 Informations académiques
-
-- **Type** : Projet universitaire de sécurité réseau
-- **Objectif pédagogique** : Démontrer les failles d'une authentification basée sur l'adresse MAC
-- **Cadre** : Éthique et légal - à but édudatif
