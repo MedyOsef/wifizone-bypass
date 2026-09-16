@@ -1,72 +1,103 @@
 # wifizone-bypass — PoC académique (LABO UNIQUEMENT)
 
-> ⚠️ **Éthique / légal** : à but **éducatif**, sur **votre propre labo** (AP de test vous appartenant, autorisation écrite).
-> L'usage sur un WiFi zone tiers sans autorisation = intrusion / vol de service, illégal.
-> Le script exige `--confirm-lab --lab-ap "NomLabo"` et restaure votre MAC d'origine.
+> 🌍 *English version: [README.en.md](README.en.md)*
 
-Démontre pourquoi **l'authentification par MAC seule est insuffisante** : MAC en clair, rejouable avec `ip link`.
+> ⚠️ **Éthique / légal** : à but **éducatif**, sur **votre propre labo** (point d'accès de test vous appartenant, autorisation écrite).
+> L'usage sur un WiFi zone tiers sans autorisation = intrusion / vol de service, illégal.
+> Le programme refuse de tester sans la case / l'option d'autorisation, et restaure toujours votre MAC d'origine.
+
+Démontre pourquoi **l'authentification par MAC seule est insuffisante** : une MAC transite en clair, se capture passivement et se rejoue avec des commandes standard (`nmcli`, `ip link`).
 
 ---
 
-## 🎯 Ce que fait la v2
+## 🖥️ Utilisation simple : l'interface graphique (`gui.py`)
 
-Ancien script : MAC en dur, `shell=True`, test manuel à chaque fois, pas de restauration.
-Nouveau `tester_mac.py` :
-- `argparse` : `--interface`, `--file`, `--out`, `--ping-target`, `--http-url`, `--limit`, `--dry-run`, `--manual`
-- Validation : regex, rejet broadcast/multicast, déduplique, ignore votre propre MAC
-- Sans `shell=True` (listes d'args), compatible NetworkManager (`nmcli disconnect/connect`)
-- Test **auto** vers **votre passerelle labo** (ping + HTTP), log CSV `results.csv`
-- Sauvegarde + **restauration auto** de la MAC d'origine (même sur Ctrl+C)
-- Garde-fou : refuse de tourner hors `--dry-run` sans `--confirm-lab`
+Pas de terminal à retenir. Interface moderne (Flet, pas tkinter) en **français ou anglais** (bouton **EN/FR** en haut à droite) avec **mode sombre/clair** (bouton 🌙/☀️).
+
+```bash
+pip install -r requirements-gui.txt
+sudo .venv/bin/python gui.py
+```
+
+> **Pourquoi `sudo` ?** Changer de MAC et capturer du trafic exigent les droits root.
+> **Pourquoi ça s'ouvre parfois dans le navigateur ?** En sudo, Flet ne trouve pas son client d'affichage en cache pour root et ne peut pas toujours le télécharger. L'appli tente d'abord la vraie fenêtre, sinon elle bascule sur le navigateur — **l'adresse exacte (localhost + IP réseau + port) s'affiche alors dans le terminal**, laissez-le ouvert.
+> Pour forcer : `sudo FLET_GUI=web .venv/bin/python gui.py` (navigateur, zéro téléchargement) ou `sudo FLET_GUI=desktop ...` (fenêtre). Le téléchargement éventuel du client Flet la première fois est normal (paquet officiel, réutilisé ensuite).
+
+### Étape 0 — Capturer VOTRE labo (optionnel)
+- Renseignez la **durée** (30 s par défaut), cliquez **● Capturer**, **⏹ Stop** pour arrêter avant la fin.
+- La capture est enregistrée dans `/tmp/capture-AAAAMMJJ-HHMMSS.pcapng` (et pas dans le dossier projet : l'outil de capture abandonne ses privilèges root et ne peut pas écrire ailleurs).
+- À la fin, les adresses MAC sont **extraites automatiquement** (`wlan.sa/wlan.da` via tshark, sinon `eth.src/eth.dst`) : doublons, broadcast et adresses invalides filtrés, et le champ fichier est rempli tout seul.
+
+### Étape 1 — Où tester ?
+- **Interface WiFi** : liste détectée automatiquement (`wlan0`…).
+- **Fichier MACs** : bouton 📂 **Choisir un fichier MACs**, ou tapez/corrigez le chemin à la main (ex. `mac_output.txt`, `/tmp/mac_output.txt`). En mode navigateur, le fichier choisi est importé en local (`macs_gui_import.txt`).
+- **SSID Cible** : simple étiquette libre (ex. `TP-SalleB`) retrouvée dans `results.csv`.
+
+### Étape 2 — Lancer le vrai test
+- Cochez **« Je confirme tester UNIQUEMENT mon propre labo autorisé »**.
+- Cliquez **▶ Lancer** (refuse de démarrer deux fois ; **⏹ Stop** arrête proprement entre deux MACs, avec restauration).
+- Suivi en direct : `Essai 3/40 : aa:...`, barre de progression, cartes résultat **✅ internet OK / ⚠️ portail captif / ❌ pas d'internet**, et **journal** en bas.
+
+### Le cycle testé pour CHAQUE adresse MAC
+1. Prend l'adresse suivante de la liste.
+2. L'applique via le profil NetworkManager (`nmcli connection modify <profil> 802-11-wireless.cloned-mac-address <mac>` puis `nmcli connection up <profil>`) — sans ça, NetworkManager restaure la MAC d'usine au reconnect et fausse tous les résultats.
+3. **Vérifie d'abord** : carte remontée + **MAC relue == demandée** + **adresse IP obtenue (DHCP)**. Sans IP → échec direct, pas de test inutile, suivante.
+4. Fait l'équivalent de `curl http://www.google.com` : ✅ si vraie page Google, ⚠️ si portail captif, ❌ sinon. (Pas de ping : la passerelle répond même sans authentification, donc le ping ne prouve rien.)
+5. Écrit le résultat dans `results.csv` et passe à la suivante (~2–4 s par MAC).
+
+### Bouton « Utiliser » et « Restaurer »
+- Chaque carte verte a un bouton **Utiliser** : applique cette MAC en un clic (même séquence vérifiée) pour surfer avec.
+- **↩ Restaurer mon MAC** : efface le `cloned-mac-address` du profil, remet la MAC d'origine (celle du début de session, sinon la hardware via `ethtool -P`), reconnecte, **et affiche la MAC réellement lue** — jamais de faux « restaurée 👍 ».
+
+### Le journal (lignes `$`)
+Chaque commande système exacte exécutée s'affiche avec `$ ` devant (ex. `$ nmcli connection up "ADMINISTRATION FOYER AKWABA"`). Pratique pour comprendre, débugger et alimenter le rapport. Seul le polling DHCP (`ip -4 ...` toutes les 0,5 s) est filtré pour rester lisible.
+
+---
+
+## ⌨️ Utilisation terminal (`tester_mac.py`, inchangé et toujours fonctionnel)
+
+```bash
+# valider sans rien modifier
+python3 tester_mac.py --interface wlan0 --file mac_output.txt --dry-run
+
+# test réel labo
+sudo python3 tester_mac.py -i wlan0 -f mac_output.txt \
+  --lab-ap "TP-SalleB" --confirm-lab --out results.csv
+
+# options utiles
+#   --http-url http://www.google.com   URL(s) test façon curl, séparées par virgule
+#   --timeout 4                        timeout HTTP par MAC (s)
+#   --delay 8                          attente MAX DHCP par MAC (sortie précoce dès l'IP)
+#   --limit 5                          limiter à N MACs (test court)
+#   --manual                           pause Entrée entre chaque MAC (test navigateur à la main)
+```
+
+Même moteur que la GUI : application persistante vérifiée (MAC relue + IP), curl google, CSV `results.csv` (`timestamp,lab,interface,mac,applied,ping_ok,http_ok,http_code,portal,detail,mode` — `ping_ok` gardé vide pour compatibilité), restauration auto même sur Ctrl+C.
+
+---
 
 ## 🛠️ Prérequis
 
-- Linux, `python3` (stdlib uniquement, pas de dépendances), `iproute2`, `nmcli` recommandé
-- `tshark` uniquement pour analyser **votre capture labo**
-- root pour changer de MAC
+- Linux, `python3`, `iproute2`, `ethtool`, `network-manager` (`nmcli`), `tshark` pour la capture.
+- root (`sudo`) pour changer de MAC et capturer.
+- GUI : `pip install -r requirements-gui.txt` (paquet `flet` uniquement ; le CLI n'a besoin que de la stdlib).
 
 ```bash
-sudo apt install tshark python3 network-manager
+sudo apt install tshark python3 network-manager ethtool iproute2
 ```
 
-## ⚙️ Workflow labo recommandé
+## ❓ Problèmes fréquents
 
-### 1. Montez votre labo (pas le réseau du voisin)
-Créez un AP de test (hostapd / routeur de TP) avec filtrage MAC activé. Notez son SSID = votre `--lab-ap`.
+| Symptôme | Cause / solution |
+|---|---|
+| `Permission denied` sur le `.pcapng` en capture | Normal : captures dans `/tmp/`, corrigé automatiquement. |
+| Fichiers appartenant à root dans le projet | Rendus à votre user via `SUDO_UID` après écriture ; nettoyez l'ancien `__pycache__` root avec `sudo rm -rf __pycache__`. |
+| La MAC « ne change pas » | C'était NetworkManager qui écrasait : maintenant application via `cloned-mac-address` du profil + vérification lue. |
+| L'interface « reste down » | `set_mac` remonte toujours l'interface en `finally` + `ensure_link_up` après chaque phase. |
+| « Fichier introuvable » dans la GUI | Le fichier n'existe pas encore : générez-le (Étape 0) ou créez-le (une MAC par ligne), ou corrigez le chemin (`/tmp/...`). |
+| Flet retélécharge son client en sudo | Normal la 1ʳᵉ fois (cache root vide) ; ensuite réutilisé. `FLET_GUI=web` pour l'éviter. |
 
-### 2. Capture labo -> liste MACs
-```bash
-# capture sur VOTRE labo uniquement
-tshark -i wlan0 -w labo.pcapng
-# extraction + tri par activité (les plus actifs d'abord, utile en démo)
-tshark -r labo.pcapng -T fields -e wlan.sa -e wlan.da \
-  | tr '\t' '\n' | grep -Ei '^([0-9a-f]{2}:){5}[0-9a-f]{2}$' \
-  | grep -vi '^ff:ff:ff:ff:ff:ff$' | sort | uniq -c | sort -nr | awk '{print $2}' > mac_output.txt
-```
-
-### 3. Simulation sans risque
-```bash
-python3 tester_mac.py --interface wlan0 --file mac_output.txt --dry-run
-```
-
-### 4. Test réel sur votre labo
-```bash
-sudo python3 tester_mac.py \
-  --interface wlan0 --file mac_output.txt \
-  --lab-ap "TP-Reseau-SalleB" --confirm-lab \
-  --ping-target 192.168.1.1 --http-url http://192.168.1.1/ \
-  --out results.csv
-# mode historique manuel :
-sudo python3 tester_mac.py -i wlan0 -f mac_output.txt --lab-ap "TP-Reseau-SalleB" --confirm-lab --manual
-```
-
-Résultat : `results.csv` avec `timestamp,lab,interface,mac,applied,ping_ok,http_ok,http_code,mode`.
-
-### 5. Persistance (labo uniquement)
-```bash
-sudo nmcli connection modify "NOM-DU-WIFI-LABO" 802-11-wireless.cloned-mac-address "MA:CA:DD:RE:SS"
-sudo nmcli connection up "NOM-DU-WIFI-LABO"
-```
+---
 
 ## 🔍 À mettre dans votre rapport
 
@@ -74,37 +105,21 @@ sudo nmcli connection up "NOM-DU-WIFI-LABO"
 |---|---|---|
 | MAC seule | En clair, rejouable | Portail captif + token session |
 | Pas de session liée | Rejeu trivial | RADIUS / 802.1X, timeout court |
-| Usurpation facile | `ip link set` standard | Détection doublons MAC, alertes simultanées |
+| Usurpation facile | `nmcli`/`ip link` standard, NM réapplique tout seul | Détection doublons MAC, alertes simultanées |
 
 Pistes opérateur : 802.1X, tokens courts, détection même MAC sur 2 radios / 2 débits, isolation client.
 
-## 🖥️ Version simple pour non-techniques (GUI Flet, pas tkinter)
-
-Pas de terminal à retenir. Interface moderne en français, mode Démo sans risque par défaut.
-
-```bash
-# installer Flet une fois (avec pip disponible)
-pip install -r requirements-gui.txt
-# démo sans risque (pas besoin de sudo)
-python3 gui.py
-# test réel labo uniquement
-sudo python3 gui.py
-```
-
-Dans la fenêtre :
-1. **Étape 1** : choisissez l'interface (liste auto) + bouton 📂 pour le fichier MACs + nom du labo
-2. **Étape 2** : laissez `Mode Démo` coché pour débuter (simule 5 adresses, ne touche à rien)
-3. Cliquez **▶ Lancer** -> progression + ✅/❌ par carte, journal simple en bas
-4. Pour le vrai test labo : décochez Démo, cochez la case d'autorisation, relancez avec sudo. Bouton ↩ pour restaurer.
+---
 
 ## 📁 Structure
 
 ```
 .
 ├── README.md
-├── tester_mac.py       # Script v2 (argparse, test auto, restore)
-├── gui.py              # GUI Flet jolie pour non-techniques (mode démo par défaut)
-├── requirements-gui.txt # flet uniquement
-├── .gitignore          # ignore pcap, mac_output*.txt, results.csv
-└── results.csv         # Généré (non versionné)
+├── tester_mac.py        # Moteur CLI + fonctions partagées (apply, test curl, restore)
+├── gui.py               # Interface Flet : capture, test, Utiliser, Stop, Restaurer, journal $
+├── requirements-gui.txt # flet>=1.0 (GUI uniquement)
+├── .gitignore           # ignore pcap, mac_output*.txt, results.csv
+├── mac_output.txt       # VOTRE liste de MACs (généré, non versionné)
+└── results.csv          # Résultats (généré, non versionné)
 ```

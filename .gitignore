@@ -1,8 +1,31 @@
+# --- Captures réseau (données de labo, volumineuses) ---
 *.pcap
 *.pcapng
+capture-*.pcapng
+
+# --- Listes de MACs (données de labo, ne jamais versionner) ---
 mac_output*.txt
 macs.txt
+macs_gui_import.txt
+original_mac.txt
+
+# --- Résultats de test ---
 results.csv
+results-*.csv
+
+# --- Python ---
 __pycache__/
 *.pyc
-original_mac.txt
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# --- Logs ---
+*.log
+
+# --- Éditeurs / OS ---
+.vscode/
+.idea/
+*~
+.DS_Store
