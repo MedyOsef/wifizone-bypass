@@ -1,5 +1,5 @@
 # wifizone-bypass — PoC académique (LABO UNIQUEMENT)
-
+![description](https://github.com/MedyOsef/wifizone-bypass/blob/main/wifi_labo_testeur_mac.gif?raw=true)
 > 🌍 *English version: [README.en.md](README.en.md)*
 
 > ⚠️ **Éthique / légal** : à but **éducatif**, sur **votre propre labo** (point d'accès de test vous appartenant, autorisation écrite).
