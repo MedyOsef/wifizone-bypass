@@ -21,8 +21,10 @@ import os
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -352,14 +354,42 @@ PORTAL_KEYWORDS = ("captive", "portal", "portail", "login", "log in", "authentif
 GOOGLE_HOST_RE = re.compile(r"(^|\.)google\.[a-z.]+$")
 
 
+def dns_works(host: str, timeout: float = 3.0) -> bool:
+    """DNS avec deadline stricte : getaddrinfo() seul peut bloquer très
+    longtemps quand il n'y a pas de réseau. Lecture seule, aucun paquet utile
+    envoyé (la résolution peut utiliser le cache local)."""
+    result: dict = {}
+
+    def _do():
+        try:
+            socket.getaddrinfo(host, 80)
+            result["ok"] = True
+        except Exception:
+            result["ok"] = False
+
+    t = threading.Thread(target=_do, daemon=True)
+    t.start()
+    t.join(timeout)
+    return result.get("ok", False)
+
+
 def test_connectivity(http_url: str, timeout: int) -> dict:
     """Équivalent curl sur google.com : succès = vraie page Google atteignable,
     pas un portail captif. Rapide : une URL, timeout court. Pas de ping —
     la passerelle répond même sans authentification, donc le ping ne prouve rien.
+
+    Hors-ligne : pré-check DNS à deadline stricte (getaddrinfo seul peut
+    bloquer longtemps sans réseau) -> verdict ❌ immédiat, sans attendre le
+    timeout HTTP. Le test lui-même n'a besoin d'aucune connexion pour tourner.
     """
     # ping_ok conservé vide : compatibilité du CSV historique (results.csv).
     result = {"ping_ok": "", "http_ok": False, "http_code": "", "portal": False, "detail": ""}
     urls = [u.strip() for u in http_url.split(",") if u.strip()] or ["http://www.google.com"]
+    first_host = (urllib.parse.urlparse(urls[0]).hostname or "www.google.com").lower()
+    if not dns_works(first_host, min(3.0, float(timeout))):
+        result["detail"] = _(f"pas de réseau (DNS injoignable : {first_host})",
+                             f"no network (DNS unreachable: {first_host})")
+        return result
     for url in urls:
         code, final, body = fetch_http(url, timeout)
         if not code:
@@ -430,7 +460,7 @@ def parse_args() -> argparse.Namespace:
                    help="URL(s) test façon curl, séparées par virgule (défaut: google)")
     p.add_argument("--timeout", type=int, default=4, help="Timeout HTTP par MAC (s, défaut: 4)")
     p.add_argument("--delay", type=float, default=8.0, help="Attente MAX DHCP/reconnexion par MAC (s, sortie précoce dès l'IP, défaut: 8)")
-    p.add_argument("--limit", type=int, default=0, help="Limiter à N MACs (0 = toutes, utile en démo)")
+    p.add_argument("--limit", type=int, default=0, help="Limiter à N MACs (0 = toutes, test court)")
     p.add_argument("--dry-run", action="store_true", help="Valide + simule sans toucher l'interface")
     p.add_argument("--manual", action="store_true",
                    help="Mode manuel historique (pause Entrée au lieu du test auto)")

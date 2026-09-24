@@ -752,19 +752,25 @@ def _print_web_url():
 
 if __name__ == "__main__":
     # FLET_GUI=web force le navigateur (AUCUN download), =desktop force la fenêtre.
-    # Sinon : en sudo on tente la fenêtre native d'abord — ce qui télécharge le
-    # client flet-desktop dans le cache de root LA PREMIÈRE FOIS (normal, officiel,
-    # réutilisé ensuite) — avec repli navigateur si échec ; hors sudo, fenêtre.
+    # En sudo : navigateur DIRECT, sans tenter la fenêtre native. Deux raisons :
+    # 1) le client desktop n'est pas en cache pour root (retéléchargement, DNS...) ;
+    # 2) GTK lancé en root avec le thème/icônes de l'user plante en dur (abort
+    #    "ensure_surface_for_gicon" via le loader SVG sandboxé, aucun try/except
+    #    ne peut le rattraper — vu avec sudo -E + thème Tela-dark).
+    # Hors sudo : fenêtre native d'abord (100 % locale une fois en cache),
+    # repli navigateur si échec. Web toujours en no_cdn=True (zéro CDN).
+    # Préparation EN LIGNE (une fois) : pip install + 1 lancement user pour
+    # amorcer le cache. Ensuite, tout tourne hors-ligne.
     force = os.environ.get("FLET_GUI", "").strip().lower()
-    if force == "web":
-        _print_web_url()
-        ft.run(main, view=ft.AppView.WEB_BROWSER, port=WEB_PORT)
-    elif force == "desktop" or os.geteuid() != 0:
+    if force == "desktop":
         ft.run(main)
+    elif force == "web" or os.geteuid() == 0:
+        _print_web_url()
+        ft.run(main, view=ft.AppView.WEB_BROWSER, port=WEB_PORT, no_cdn=True)
     else:
         try:
             ft.run(main)
         except Exception as e:
             print(f"Fenêtre desktop indisponible ({e}).")
             _print_web_url()
-            ft.run(main, view=ft.AppView.WEB_BROWSER, port=WEB_PORT)
+            ft.run(main, view=ft.AppView.WEB_BROWSER, port=WEB_PORT, no_cdn=True)

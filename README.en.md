@@ -20,8 +20,8 @@ sudo .venv/bin/python gui.py
 ```
 
 > **Why `sudo`?** Changing MACs and capturing traffic require root privileges.
-> **Why does it sometimes open in the browser?** Under sudo, Flet can't find its display client cached for root and can't always download it. The app tries the real window first, otherwise it falls back to the browser — **the exact address (localhost + network IP + port) is then printed in the terminal**, keep it open.
-> To force: `sudo FLET_GUI=web .venv/bin/python gui.py` (browser, zero download) or `sudo FLET_GUI=desktop ...` (window). A possible Flet client download the first time is normal (official package, reused afterwards).
+> **Why does it open in the browser under sudo?** On purpose: a native window launched as root crashes hard (GTK + the user's icon theme → `abort`, uncatchable). Under sudo the app therefore goes **straight** to the browser — **the exact address (localhost + network IP + port) is printed in the terminal**, keep it open.
+> To force: `FLET_GUI=web` (browser, zero download) or `FLET_GUI=desktop` (window — not recommended under sudo: likely GTK crash).
 
 ### Step 0 — Capture YOUR lab (optional)
 - Enter the **duration** (30 s by default), click **● Capture**, **⏹ Stop** to quit early.
@@ -86,6 +86,30 @@ Same engine as the GUI: verified persistent apply (read-back MAC + IP), google c
 sudo apt install tshark python3 network-manager ethtool iproute2
 ```
 
+## 📴 Offline use (field work without internet)
+
+No internet when launching? That's expected: **everything runs locally**, only the curl verdict *attempts* the network (and fails fast otherwise).
+
+**ONLINE preparation, once before going offline:**
+```bash
+pip install -r requirements-gui.txt   # or the ready .venv
+python3 gui.py                        # seeds the display cache (then Ctrl+C)
+```
+(No need to seed anything as root: under sudo the app uses the browser, with no download.)
+
+**Offline matrix:**
+
+| Feature | Without network |
+|---|---|
+| GUI outside sudo (window) | ✅ 100% local once the client is cached |
+| GUI under sudo (browser) | ✅ direct, `no_cdn=True`: zero CDN calls, zero download |
+| tshark capture + MAC extraction | ✅ local |
+| MAC apply + read-back MAC + DHCP IP check | ✅ local |
+| google curl verdict | ❌ fast `no network (DNS…)` (DNS pre-check ~3 s max, no hanging) |
+| Restore + CSV + `$` log | ✅ local |
+
+> Tip: offline, each MAC yields `❌ no network (DNS…)` in ~3 s — that's the "no internet" verdict, not a bug. As soon as a MAC opens access, the verdict flips to ✅ by itself.
+
 ## ❓ Frequent issues
 
 | Symptom | Cause / fix |
@@ -95,7 +119,8 @@ sudo apt install tshark python3 network-manager ethtool iproute2
 | The MAC "doesn't change" | That was NetworkManager overwriting it: now applied via the profile's `cloned-mac-address` + read-back verification. |
 | The interface "stays down" | `set_mac` always brings the interface back up in a `finally` + `ensure_link_up` after each phase. |
 | "File not found" in the GUI | The file doesn't exist yet: generate it (Step 0) or create it (one MAC per line), or fix the path (`/tmp/...`). |
-| Flet re-downloads its client under sudo | Normal the 1st time (empty root cache); reused afterwards. `FLET_GUI=web` to avoid it. |
+| Flet re-downloads its client under sudo | Should no longer happen: under sudo the app goes straight to the browser (no download). Outside sudo, normal the 1st time (empty cache) then reused. |
+| GTK crash `ensure_surface_for_gicon` / `Bail out!` under sudo | Known: native window as root + user icon theme = uncatchable abort. The app works around it by going straight to the browser under sudo; don't force `FLET_GUI=desktop` under sudo. |
 
 ---
 
@@ -120,7 +145,7 @@ Operator leads: 802.1X, short-lived tokens, same-MAC-on-2-radios detection, clie
 ├── tester_mac.py        # CLI engine + shared functions (apply, curl test, restore)
 ├── gui.py               # Flet UI: capture, test, Use, Stop, Restore, $ log (FR/EN, dark/light)
 ├── requirements-gui.txt # flet>=1.0 (GUI only)
-├── .gitignore           # ignores pcap, mac_output*.txt, results.csv
+├── .gitignore           # ignores pcap, MAC lists, results.csv, .venv/, __pycache__…
 ├── mac_output.txt       # YOUR MAC list (generated, not versioned)
 └── results.csv          # Results (generated, not versioned)
 ```

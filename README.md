@@ -20,8 +20,8 @@ sudo .venv/bin/python gui.py
 ```
 
 > **Pourquoi `sudo` ?** Changer de MAC et capturer du trafic exigent les droits root.
-> **Pourquoi ça s'ouvre parfois dans le navigateur ?** En sudo, Flet ne trouve pas son client d'affichage en cache pour root et ne peut pas toujours le télécharger. L'appli tente d'abord la vraie fenêtre, sinon elle bascule sur le navigateur — **l'adresse exacte (localhost + IP réseau + port) s'affiche alors dans le terminal**, laissez-le ouvert.
-> Pour forcer : `sudo FLET_GUI=web .venv/bin/python gui.py` (navigateur, zéro téléchargement) ou `sudo FLET_GUI=desktop ...` (fenêtre). Le téléchargement éventuel du client Flet la première fois est normal (paquet officiel, réutilisé ensuite).
+> **Pourquoi ça s'ouvre dans le navigateur en sudo ?** C'est volontaire : la fenêtre native lancée en root plante en dur (GTK + thème d'icônes de l'user → `abort`, irrattrapable). En sudo l'appli va donc **directement** sur le navigateur — **l'adresse exacte (localhost + IP réseau + port) s'affiche dans le terminal**, laissez-le ouvert.
+> Pour forcer : `FLET_GUI=web` (navigateur, zéro téléchargement) ou `FLET_GUI=desktop` (fenêtre — déconseillé en sudo : crash GTK probable).
 
 ### Étape 0 — Capturer VOTRE labo (optionnel)
 - Renseignez la **durée** (30 s par défaut), cliquez **● Capturer**, **⏹ Stop** pour arrêter avant la fin.
@@ -86,6 +86,30 @@ Même moteur que la GUI : application persistante vérifiée (MAC relue + IP), c
 sudo apt install tshark python3 network-manager ethtool iproute2
 ```
 
+## 📴 Fonctionnement hors-ligne (terrain sans internet)
+
+L'ordinateur n'a pas internet au lancement ? C'est prévu : **tout tourne en local**, seul le verdict curl *tente* le réseau (et échoue vite sinon).
+
+**Préparation EN LIGNE, une seule fois avant le terrain :**
+```bash
+pip install -r requirements-gui.txt   # ou le .venv déjà prêt
+python3 gui.py                        # amorce le cache d'affichage (puis Ctrl+C)
+```
+(Pas besoin d'amorcer quoi que ce soit en root : en sudo l'appli utilise le navigateur, sans téléchargement.)
+
+**Matrice hors-ligne :**
+
+| Fonction | Sans réseau |
+|---|---|
+| GUI hors sudo (fenêtre) | ✅ 100 % locale une fois le client en cache |
+| GUI en sudo (navigateur) | ✅ direct, `no_cdn=True` : zéro appel CDN, zéro download |
+| Capture tshark + extraction MACs | ✅ local |
+| Apply MAC + vérif MAC lue + IP DHCP | ✅ local |
+| Verdict curl google | ❌ rapide `pas de réseau (DNS…)` (pré-check DNS ~3 s max, pas de blocage) |
+| Restore + CSV + journal `$` | ✅ local |
+
+> Astuce : sans réseau, chaque MAC donne `❌ pas de réseau (DNS…)` en ~3 s — normal, c'est le verdict « pas d'internet », pas un bug. Dès qu'une MAC ouvre l'accès, le verdict passe à ✅ tout seul.
+
 ## ❓ Problèmes fréquents
 
 | Symptôme | Cause / solution |
@@ -95,7 +119,8 @@ sudo apt install tshark python3 network-manager ethtool iproute2
 | La MAC « ne change pas » | C'était NetworkManager qui écrasait : maintenant application via `cloned-mac-address` du profil + vérification lue. |
 | L'interface « reste down » | `set_mac` remonte toujours l'interface en `finally` + `ensure_link_up` après chaque phase. |
 | « Fichier introuvable » dans la GUI | Le fichier n'existe pas encore : générez-le (Étape 0) ou créez-le (une MAC par ligne), ou corrigez le chemin (`/tmp/...`). |
-| Flet retélécharge son client en sudo | Normal la 1ʳᵉ fois (cache root vide) ; ensuite réutilisé. `FLET_GUI=web` pour l'éviter. |
+| Flet retélécharge son client en sudo | Ne devrait plus arriver : en sudo l'appli va direct au navigateur (pas de download). Hors sudo, normal la 1ʳᵉ fois (cache vide) puis réutilisé. |
+| Crash GTK `ensure_surface_for_gicon` / `Bail out!` en sudo | Connu : fenêtre native en root + thème d'icônes user = abort irrattrapable. L'appli contourne en allant direct au navigateur en sudo ; ne forcez pas `FLET_GUI=desktop` en sudo. |
 
 ---
 
@@ -116,10 +141,11 @@ Pistes opérateur : 802.1X, tokens courts, détection même MAC sur 2 radios / 2
 ```
 .
 ├── README.md
+├── README.en.md         # Ce doc en anglais
 ├── tester_mac.py        # Moteur CLI + fonctions partagées (apply, test curl, restore)
 ├── gui.py               # Interface Flet : capture, test, Utiliser, Stop, Restaurer, journal $
 ├── requirements-gui.txt # flet>=1.0 (GUI uniquement)
-├── .gitignore           # ignore pcap, mac_output*.txt, results.csv
+├── .gitignore           # ignore pcap, listes MACs, results.csv, .venv/, __pycache__…
 ├── mac_output.txt       # VOTRE liste de MACs (généré, non versionné)
 └── results.csv          # Résultats (généré, non versionné)
 ```
